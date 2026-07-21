@@ -149,6 +149,12 @@ async def send_for_approval(app: Application, story_key: str) -> None:
     )
 
 
+async def send_alert(text: str) -> None:
+    """Push an operational warning to the authorized chat, outside any approval flow."""
+    app = build_app()
+    await app.bot.send_message(chat_id=settings.telegram_authorized_chat_id, text=text)
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not _authorized(update):

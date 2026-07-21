@@ -187,18 +187,44 @@ async def _poll_for(telegram_app, seconds: int) -> None:
 
 
 @app.command()
-def token_status():
-    """Report how long the Instagram access token has left."""
+def token_status(
+    notify: bool = typer.Option(
+        False,
+        help="Also send a Telegram warning when the token is close to expiry.",
+    ),
+    warn_days: int = typer.Option(14, help="Warn when fewer than this many days remain."),
+):
+    """Report how long the Instagram access token has left.
+
+    The token cannot be extended by re-exchanging it, so it has to be replaced by
+    hand roughly every 60 days. A red X in the Actions tab is easy to miss, so
+    --notify pushes the warning to Telegram, where approvals already happen.
+    """
     remaining = tokens.days_until_expiry()
 
     if remaining is None:
         typer.echo("Token does not expire.")
         return
 
-    typer.echo(f"Token expires in {remaining:.1f} days ({tokens.token_expires_at():%Y-%m-%d}).")
-    if remaining < 14:
-        typer.echo("WARNING: fewer than 14 days left - refresh it now.", err=True)
-        raise typer.Exit(code=1)
+    expires_on = tokens.token_expires_at()
+    typer.echo(f"Token expires in {remaining:.1f} days ({expires_on:%Y-%m-%d}).")
+
+    if remaining >= warn_days:
+        return
+
+    message = (
+        f"⚠️ Instagram token expires in {remaining:.0f} days "
+        f"({expires_on:%d %b %Y}).\n\n"
+        "Publishing stops when it lapses. Replace it with a new long-lived token "
+        "(see README: Replacing the Instagram token)."
+    )
+    typer.echo(message, err=True)
+
+    if notify:
+        asyncio.run(bot.send_alert(message))
+        typer.echo("Telegram warning sent.")
+
+    raise typer.Exit(code=1)
 
 
 @app.command()

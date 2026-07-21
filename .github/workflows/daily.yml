@@ -50,10 +50,12 @@ jobs:
         run: pip install -e .
 
       - name: Warn if the Instagram token is close to expiry
-        # Non-blocking: a stale token still publishes fine until it actually lapses,
-        # and this is the signal that refresh-token.yml has stopped working.
+        # The token cannot be auto-extended (see refresh-token.yml), so it is
+        # replaced by hand every ~60 days. Non-blocking, because a valid token still
+        # publishes fine -- but it pings Telegram, since a red X here is easy to miss
+        # and a lapsed token silently stops all publishing.
         continue-on-error: true
-        run: newsroom token-status
+        run: newsroom token-status --notify
 
       - name: Draft today's posts and send them for approval
         run: newsroom run

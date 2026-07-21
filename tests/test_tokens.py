@@ -3,6 +3,7 @@ import datetime
 import httpx
 import pytest
 import respx
+import typer
 
 from newsroom import tokens
 from newsroom.tokens import TokenRefreshError
@@ -140,3 +141,55 @@ def test_missing_access_token_in_response_raises():
 
         with pytest.raises(TokenRefreshError, match="no access_token"):
             tokens.refresh_token()
+
+
+def test_expiry_warning_fires_below_the_threshold(monkeypatch, capsys):
+    """The Telegram nag is the only thing standing between a lapsed token and
+    silently broken publishing, so the threshold must actually trigger."""
+    from newsroom import cli
+
+    sent = []
+    monkeypatch.setattr(cli.tokens, "days_until_expiry", lambda *a, **k: 9.0)
+    monkeypatch.setattr(
+        cli.tokens, "token_expires_at",
+        lambda *a, **k: datetime.datetime(2026, 9, 14, tzinfo=datetime.timezone.utc),
+    )
+    monkeypatch.setattr(cli.bot, "send_alert", lambda text: sent.append(text))
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+
+    with pytest.raises(typer.Exit) as exc:
+        cli.token_status(notify=True, warn_days=14)
+
+    assert exc.value.exit_code == 1
+    assert len(sent) == 1
+    assert "expires in 9 days" in sent[0]
+
+
+def test_no_warning_when_the_token_has_plenty_of_life(monkeypatch):
+    from newsroom import cli
+
+    sent = []
+    monkeypatch.setattr(cli.tokens, "days_until_expiry", lambda *a, **k: 55.0)
+    monkeypatch.setattr(
+        cli.tokens, "token_expires_at",
+        lambda *a, **k: datetime.datetime(2026, 9, 14, tzinfo=datetime.timezone.utc),
+    )
+    monkeypatch.setattr(cli.bot, "send_alert", lambda text: sent.append(text))
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+
+    cli.token_status(notify=True, warn_days=14)  # must not raise
+
+    assert sent == []
+
+
+def test_non_expiring_token_never_warns(monkeypatch):
+    from newsroom import cli
+
+    sent = []
+    monkeypatch.setattr(cli.tokens, "days_until_expiry", lambda *a, **k: None)
+    monkeypatch.setattr(cli.bot, "send_alert", lambda text: sent.append(text))
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+
+    cli.token_status(notify=True, warn_days=14)
+
+    assert sent == []

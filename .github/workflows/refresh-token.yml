@@ -12,9 +12,17 @@ name: Refresh Instagram token
 #   SECRETS_PAT    - fine-grained PAT with "Secrets: read and write" on this repo.
 #                    The built-in GITHUB_TOKEN cannot update repository secrets.
 
+# SCHEDULE DELIBERATELY DISABLED.
+#
+# Re-exchanging an already-long-lived user token does NOT reset its 60-day clock:
+# Meta returns a new token string carrying the *original* expiry. Measured on
+# 2026-07-21 -- before: 54.9 days remaining, after: 55.0. Running this on a cron
+# would look like the token was being kept alive while it quietly aged out.
+#
+# The token is therefore replaced by hand every ~60 days (see README, "Replacing
+# the Instagram token"). This workflow is kept for manual use only: it is still the
+# right tool for turning a fresh SHORT-lived token into a 60-day long-lived one.
 on:
-  schedule:
-    - cron: "20 6 1,15 * *"
   workflow_dispatch:
 
 concurrency:

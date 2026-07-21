@@ -89,35 +89,51 @@ history from a local database on first deploy:
 cp newsroom.db state/newsroom.db
 ```
 
-### Keeping the Instagram token alive
+### Replacing the Instagram token
 
-The account publishes with a long-lived **Facebook user** token, which Meta expires
-after **60 days**. A Page access token would never expire, but `/me/accounts` is
-empty for this app, so there is no Page token to use instead — the token genuinely
-has to be exchanged on a schedule or publishing starts failing silently.
+Publishing uses a long-lived **Facebook user** token, which Meta expires after
+**60 days**. It cannot be renewed automatically:
 
-`.github/workflows/refresh-token.yml` does that on the 1st and 15th of each month,
-so roughly four refreshes happen before any token could lapse. It needs two secrets
-beyond the pipeline's own:
+- A **Page** access token would never expire, but `/me/accounts` is empty for this
+  app, so there is no Page token to switch to.
+- Re-exchanging the long-lived token does **not** reset its clock. Meta returns a
+  new token string carrying the *original* expiry. Measured 2026-07-21: 54.9 days
+  remaining before the exchange, 55.0 after. A cron built on this would look like
+  it was keeping the token alive while it quietly aged out.
 
-| Secret | Where to get it |
-|---|---|
-| `FB_APP_SECRET` | Meta App Dashboard → Settings → Basic → App Secret |
-| `SECRETS_PAT` | A fine-grained PAT with **Secrets: read and write** on this repo |
+So the token is replaced **by hand roughly every 60 days**. To stop that being
+forgotten, the daily run checks the expiry and sends a **Telegram warning** once
+fewer than 14 days remain, since a red X in the Actions tab is far too easy to miss.
 
-The PAT is unavoidable: the built-in `GITHUB_TOKEN` cannot update repository secrets.
+Check any time with `newsroom token-status` (add `--notify` to also ping Telegram).
+
+**The procedure**, when the warning arrives:
+
+1. Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/),
+   select the app, grant `instagram_basic`, `instagram_content_publish` and
+   `pages_show_list`, and generate a token. This one is short-lived (1-2 hours).
+2. Exchange it for a 60-day token: run `newsroom refresh-token` locally with
+   `FB_APP_ID`/`FB_APP_SECRET` in `.env`, or trigger `refresh-token.yml` manually
+   from the Actions tab, which exchanges and stores in one step.
+3. If you exchanged locally, paste the result into the `IG_ACCESS_TOKEN` secret.
+4. Confirm with `newsroom token-status` - it should report ~60 days.
+
+`refresh-token.yml` is retained for step 2 only; **its schedule is deliberately
+disabled**. It needs `FB_APP_SECRET` and `SECRETS_PAT` (a fine-grained PAT with
+**Secrets: read and write**), because the built-in `GITHUB_TOKEN` cannot write
+repository secrets.
 
 Two safety properties worth preserving if you edit that workflow:
 
 - The new token is **validated against Meta before it is stored**, so a broken token
-  can never overwrite a working one. Checking afterwards would not work — `secrets.*`
+  can never overwrite a working one. Checking afterwards would not work: `secrets.*`
   resolves at job start, so a later step re-reads the *old* value and passes anyway.
 - The store step is deliberately **not** a shell pipeline. `refresh | gh secret set`
   runs `gh` even when the refresh fails, feeding it empty stdin and destroying a
   perfectly good token while exiting 0.
 
-Check the current state any time with `newsroom token-status`; the daily run also
-warns (non-blocking) when fewer than 14 days remain.
+For a permanent fix, a **System User token** from Meta Business Manager never
+expires and would remove this procedure entirely.
 
 **The approval tradeoff.** The Telegram buttons only work while a job is alive, so
 the daily job stays online for a 45-minute approval window after posting. Anything
