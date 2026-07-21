@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     ig_user_id: str
     ig_access_token: str
 
+    # Meta app credentials, needed only to refresh ig_access_token before its
+    # 60-day expiry. Optional so the pipeline still runs without them.
+    fb_app_id: str | None = None
+    fb_app_secret: str | None = None
+
     # Telegram
     telegram_bot_token: str
     telegram_authorized_chat_id: int

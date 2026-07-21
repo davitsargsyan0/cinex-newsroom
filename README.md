@@ -89,6 +89,36 @@ history from a local database on first deploy:
 cp newsroom.db state/newsroom.db
 ```
 
+### Keeping the Instagram token alive
+
+The account publishes with a long-lived **Facebook user** token, which Meta expires
+after **60 days**. A Page access token would never expire, but `/me/accounts` is
+empty for this app, so there is no Page token to use instead — the token genuinely
+has to be exchanged on a schedule or publishing starts failing silently.
+
+`.github/workflows/refresh-token.yml` does that on the 1st and 15th of each month,
+so roughly four refreshes happen before any token could lapse. It needs two secrets
+beyond the pipeline's own:
+
+| Secret | Where to get it |
+|---|---|
+| `FB_APP_SECRET` | Meta App Dashboard → Settings → Basic → App Secret |
+| `SECRETS_PAT` | A fine-grained PAT with **Secrets: read and write** on this repo |
+
+The PAT is unavoidable: the built-in `GITHUB_TOKEN` cannot update repository secrets.
+
+Two safety properties worth preserving if you edit that workflow:
+
+- The new token is **validated against Meta before it is stored**, so a broken token
+  can never overwrite a working one. Checking afterwards would not work — `secrets.*`
+  resolves at job start, so a later step re-reads the *old* value and passes anyway.
+- The store step is deliberately **not** a shell pipeline. `refresh | gh secret set`
+  runs `gh` even when the refresh fails, feeding it empty stdin and destroying a
+  perfectly good token while exiting 0.
+
+Check the current state any time with `newsroom token-status`; the daily run also
+warns (non-blocking) when fewer than 14 days remain.
+
 **The approval tradeoff.** The Telegram buttons only work while a job is alive, so
 the daily job stays online for a 45-minute approval window after posting. Anything
 you don't approve in that window stays `PENDING_APPROVAL` — the next daily run does

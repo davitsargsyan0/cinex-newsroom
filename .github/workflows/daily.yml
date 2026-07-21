@@ -49,6 +49,12 @@ jobs:
       - name: Install
         run: pip install -e .
 
+      - name: Warn if the Instagram token is close to expiry
+        # Non-blocking: a stale token still publishes fine until it actually lapses,
+        # and this is the signal that refresh-token.yml has stopped working.
+        continue-on-error: true
+        run: newsroom token-status
+
       - name: Draft today's posts and send them for approval
         run: newsroom run
 

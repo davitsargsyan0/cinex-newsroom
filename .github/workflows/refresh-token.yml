@@ -1,0 +1,79 @@
+name: Refresh Instagram token
+
+# The Instagram access token is a long-lived Facebook USER token, which Meta
+# expires after 60 days. A Page access token would never expire, but this app has
+# no Page available (`/me/accounts` is empty), so the token must be exchanged for a
+# fresh one on a schedule or publishing silently starts failing.
+#
+# Runs fortnightly, so roughly four refreshes happen before any token would lapse.
+#
+# Requires two secrets beyond the pipeline's own:
+#   FB_APP_SECRET  - Meta app secret (App Dashboard -> Settings -> Basic)
+#   SECRETS_PAT    - fine-grained PAT with "Secrets: read and write" on this repo.
+#                    The built-in GITHUB_TOKEN cannot update repository secrets.
+
+on:
+  schedule:
+    - cron: "20 6 1,15 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: newsroom-token
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+      FB_APP_ID: ${{ secrets.FB_APP_ID }}
+      FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+      # Unused by this job, but config.Settings requires them to construct.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_AUTHORIZED_CHAT_ID: ${{ secrets.TELEGRAM_AUTHORIZED_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Report current expiry
+        continue-on-error: true
+        run: newsroom token-status
+
+      - name: Exchange for a fresh token and store it
+        env:
+          GH_TOKEN: ${{ secrets.SECRETS_PAT }}
+        # The token is validated against Meta *before* it is emitted, so a broken
+        # token can never overwrite a working one. Verifying after the write is
+        # impossible anyway: `secrets.*` resolves at job start, so a later step
+        # would re-read the old value and pass regardless.
+        #
+        # Deliberately NOT a pipeline. `refresh | gh secret set` would run `gh` even
+        # when the refresh failed, feeding it empty stdin and destroying a perfectly
+        # good token. pipefail plus an explicit emptiness check makes that
+        # impossible: nothing is written unless a validated token exists.
+        run: |
+          set -euo pipefail
+          TOKEN="$(newsroom refresh-token --quiet)"
+          if [ -z "$TOKEN" ]; then
+            echo "::error::refresh produced an empty token; leaving the existing one alone"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | gh secret set IG_ACCESS_TOKEN
+          echo "Stored a refreshed token."

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import typer
 
-from newsroom import bot, branding, db, slides
+from newsroom import bot, branding, db, slides, tokens
 from newsroom.generate import generate_draft
 from newsroom.images import get_images
 from newsroom.news import fetch_top_stories
@@ -184,6 +184,47 @@ async def _poll_for(telegram_app, seconds: int) -> None:
         finally:
             await telegram_app.updater.stop()
             await telegram_app.stop()
+
+
+@app.command()
+def token_status():
+    """Report how long the Instagram access token has left."""
+    remaining = tokens.days_until_expiry()
+
+    if remaining is None:
+        typer.echo("Token does not expire.")
+        return
+
+    typer.echo(f"Token expires in {remaining:.1f} days ({tokens.token_expires_at():%Y-%m-%d}).")
+    if remaining < 14:
+        typer.echo("WARNING: fewer than 14 days left - refresh it now.", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def refresh_token(
+    quiet: bool = typer.Option(
+        False,
+        help="Print ONLY the new token to stdout, for piping into a secret store.",
+    ),
+):
+    """Exchange the Instagram token for a fresh one, valid another ~60 days.
+
+    The new token is written to stdout so it can be piped straight into
+    `gh secret set` -- it is never logged, because this repository is public.
+    """
+    new_token = tokens.refresh_token()
+
+    if quiet:
+        # Bare token, no newline decoration, nothing else on stdout.
+        typer.echo(new_token, nl=False)
+        return
+
+    remaining = tokens.days_until_expiry(new_token)
+    typer.echo(
+        f"Refreshed. New token is valid for {remaining:.0f} days. "
+        "Re-run with --quiet to pipe it into your secret store."
+    )
 
 
 @app.command()
