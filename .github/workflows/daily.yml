@@ -1,0 +1,71 @@
+name: Daily newsroom run
+
+on:
+  schedule:
+    # 07:10 UTC daily. Deliberately off the hour: scheduled workflows queue behind
+    # GitHub's on-the-hour spike and can be delayed by 10+ minutes.
+    - cron: "10 7 * * *"
+  workflow_dispatch:
+    inputs:
+      approval_window_seconds:
+        description: "How long to stay online for Telegram approvals"
+        required: false
+        default: "2700"
+
+# Two runs must never touch the state DB at once.
+concurrency:
+  group: newsroom-state
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    env:
+      NEWSROOM_DB_PATH: state/newsroom.db
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_AUTHORIZED_CHAT_ID: ${{ secrets.TELEGRAM_AUTHORIZED_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Draft today's posts and send them for approval
+        run: newsroom run
+
+      - name: Stay online for Telegram approvals
+        # Buttons only work while this job is alive. Anything left unapproved stays
+        # PENDING_APPROVAL and gets resurfaced by `newsroom pending` on the next run.
+        run: newsroom listen --timeout ${{ github.event.inputs.approval_window_seconds || 2700 }}
+
+      - name: Commit state
+        if: always()
+        run: |
+          if [[ -z "$(git status --porcelain state/)" ]]; then
+            echo "No state change to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          git commit -m "chore: update newsroom state [skip ci]"
+          git push

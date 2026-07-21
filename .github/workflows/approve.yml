@@ -1,0 +1,66 @@
+name: Open an approval window
+
+# Re-sends anything still awaiting approval and listens for the buttons. Use this
+# when the daily run's window closed before you got to Telegram.
+
+on:
+  workflow_dispatch:
+    inputs:
+      approval_window_seconds:
+        description: "How long to stay online for Telegram approvals"
+        required: false
+        default: "1800"
+
+concurrency:
+  group: newsroom-state
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      NEWSROOM_DB_PATH: state/newsroom.db
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_AUTHORIZED_CHAT_ID: ${{ secrets.TELEGRAM_AUTHORIZED_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Resurface pending drafts
+        run: newsroom pending
+
+      - name: Stay online for Telegram approvals
+        run: newsroom listen --timeout ${{ github.event.inputs.approval_window_seconds || 1800 }}
+
+      - name: Commit state
+        if: always()
+        run: |
+          if [[ -z "$(git status --porcelain state/)" ]]; then
+            echo "No state change to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          git commit -m "chore: update newsroom state [skip ci]"
+          git push
