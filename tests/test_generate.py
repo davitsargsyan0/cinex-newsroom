@@ -12,7 +12,7 @@ def _valid_payload() -> dict:
         "hashtags": ["news", "worldnews"],
         "alt_text": "Symbolic illustration representing global trade.",
         "image_brief": {
-            "keywords": ["global trade", "shipping containers"],
+            "queries": ["shipping container stack", "dock worker hands", "harbour at dusk"],
             "ai_prompt": "A symbolic, conceptual illustration of global trade routes.",
         },
         "sources": ["Reuters"],
@@ -42,14 +42,37 @@ def test_invalid_json_raises():
         parse_draft_json("not json at all")
 
 
-def test_comma_separated_keywords_are_coerced_to_a_list():
-    """Observed in the wild: gpt-4.1 returns keywords as one comma-joined string."""
+def test_comma_separated_queries_are_coerced_to_a_list():
+    """Observed in the wild: gpt-4.1 returns the list as one comma-joined string."""
     payload = _valid_payload()
-    payload["image_brief"]["keywords"] = "music copyright, lawsuit, legal battle"
+    payload["image_brief"]["queries"] = "vinyl record macro, recording studio desk"
 
     draft = parse_draft_json(json.dumps(payload))
 
-    assert draft.image_brief.keywords == ["music copyright", "lawsuit", "legal battle"]
+    assert draft.image_brief.queries == ["vinyl record macro", "recording studio desk"]
+
+
+def test_legacy_keywords_brief_still_validates():
+    """Drafts saved before the per-slide rewrite are still in the database, and the
+    Telegram regenerate button revalidates whatever brief it finds there."""
+    payload = _valid_payload()
+    payload["image_brief"] = {
+        "keywords": ["global trade", "shipping containers"],
+        "ai_prompt": "A symbolic illustration.",
+    }
+
+    draft = parse_draft_json(json.dumps(payload))
+
+    assert draft.image_brief.queries == ["global trade", "shipping containers"]
+
+
+def test_queries_win_when_both_fields_are_present():
+    payload = _valid_payload()
+    payload["image_brief"]["keywords"] = ["stale", "legacy"]
+
+    draft = parse_draft_json(json.dumps(payload))
+
+    assert draft.image_brief.queries[0] == "shipping container stack"
 
 
 def test_comma_separated_hashtags_and_sources_are_coerced():
@@ -66,7 +89,11 @@ def test_comma_separated_hashtags_and_sources_are_coerced():
 def test_proper_lists_are_left_alone():
     draft = parse_draft_json(json.dumps(_valid_payload()))
 
-    assert draft.image_brief.keywords == ["global trade", "shipping containers"]
+    assert draft.image_brief.queries == [
+        "shipping container stack",
+        "dock worker hands",
+        "harbour at dusk",
+    ]
 
 
 def test_parses_armenian_caption():

@@ -63,6 +63,21 @@ def test_logo_is_keyed_to_transparency():
     assert transparent > 0.4 * (logo.width * logo.height)
 
 
+def test_high_resolution_source_is_downsampled_not_upscaled():
+    """Images now arrive at 2x the canvas; branding must be the only resample."""
+    out = branding.apply_template(_photo(size=(2160, 2700)), HEADLINE, 0, 3)
+
+    assert Image.open(io.BytesIO(out)).size == branding.CANVAS
+
+
+def test_source_already_at_target_ratio_is_not_cropped():
+    source = Image.new("RGB", (2160, 2700), (40, 60, 90))
+
+    fitted = branding._fit_cover(source)
+
+    assert fitted.size == branding.CANVAS
+
+
 def test_branding_survives_a_greyscale_source():
     buf = io.BytesIO()
     Image.new("L", (1600, 2400), 128).save(buf, format="JPEG")

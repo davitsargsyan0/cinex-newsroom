@@ -38,7 +38,8 @@ async def _send_approval_messages(
 def _render_preview(story, draft, out_dir: Path) -> None:
     """Dry-run helper: write branded slides to disk instead of hosting them."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    sourced = get_images(draft.image_brief)
+    typer.echo(f"  -> image queries: {draft.image_brief.queries}")
+    sourced = get_images(draft.image_brief, headline=story.title)
 
     for index, image in enumerate(sourced):
         branded = branding.apply_template(

@@ -8,7 +8,7 @@ the full article. The model returns JSON, which is validated with Pydantic.
 import json
 
 from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from newsroom.config import settings
 from newsroom.news import Story
@@ -33,8 +33,20 @@ Hard rules:
   shared list serves both captions.
 - alt_text: a plain-language description of a fitting image.
 - image_brief:
-    - keywords: stock-photo search keywords that are conceptual and do not name
-      a specific real person, event, or place.
+    - queries: exactly 3 stock-photo search queries, one per carousel slide.
+      Each query must be:
+        * 2-4 words naming something you could actually photograph. Abstract
+          phrases like "technology concept", "innovation" or "modern device"
+          return generic filler - never use them.
+        * free of any real brand, company, product, person or place name.
+        * framed as a detail, macro or close-up rather than a whole product,
+          because whole-product shots put someone else's logo in the picture.
+      The 3 queries must cover DIFFERENT angles so the carousel varies:
+        1. the central object or material, close and tactile
+        2. a person interacting with or affected by it
+        3. the wider setting, or an abstract texture that evokes the story
+      Good: ["speaker cone macro", "person holding tablet", "dark server aisle"]
+      Bad:  ["tablet high-end audio", "modern technology", "multimedia enjoyment"]
     - ai_prompt: a conceptual, editorial, or symbolic image-generation prompt.
       Never request a photorealistic reconstruction of a real event or a real
       identifiable public figure.
@@ -59,10 +71,22 @@ def _coerce_str_list(value):
 
 
 class ImageBrief(BaseModel):
-    keywords: list[str]
+    queries: list[str]  # one short, concrete search query per carousel slide
     ai_prompt: str
 
-    _split_keywords = field_validator("keywords", mode="before")(_coerce_str_list)
+    _split_queries = field_validator("queries", mode="before")(_coerce_str_list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_keywords(cls, data):
+        """Map the old `keywords` field onto `queries`.
+
+        Drafts saved before the per-slide rewrite are still in the database, and the
+        Telegram "Regenerate image" button revalidates whatever brief it finds there.
+        """
+        if isinstance(data, dict) and "queries" not in data and "keywords" in data:
+            data = {**data, "queries": data["keywords"]}
+        return data
 
 
 class GeneratedDraft(BaseModel):

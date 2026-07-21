@@ -25,7 +25,8 @@ def build_slides(
     count: int | None = None,
 ) -> Slides:
     """Fetch images, stamp Cinex branding on each, upload, and return the hosted URLs."""
-    sourced = get_images(image_brief, count=count)
+    # The headline goes to the photo picker too, so it can reject off-topic results.
+    sourced = get_images(image_brief, count=count, headline=headline)
 
     branded = [
         branding.apply_template(

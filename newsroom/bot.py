@@ -198,7 +198,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         image_brief = (
             ImageBrief.model_validate(stored_brief)
             if stored_brief
-            else ImageBrief(keywords=[draft["title"]], ai_prompt=draft["title"])
+            else ImageBrief(queries=[draft["title"]], ai_prompt=draft["title"])
         )
 
         new_slides = slides.build_slides(story_key, draft["title"], image_brief)
